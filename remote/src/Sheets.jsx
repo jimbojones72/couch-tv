@@ -450,7 +450,7 @@ function GuestName({ open }) {
   );
 }
 
-export const MoreSheet = forwardRef(function MoreSheet({ open, onClose, sleepEnds, onSleep, onKey, onText, sleepError, tvs, tvId, onTv, canMove, onMove, picture, pictureInfo, onPicture, onArrange, onPeople, onKids }, ref) {
+export const MoreSheet = forwardRef(function MoreSheet({ open, onClose, sleepEnds, onSleep, onKey, onText, sleepError, tvs, tvId, onTv, canMove, onMove, picture, pictureInfo, onPicture, onArrange, onPeople, onKids, showCallMarvin }, ref) {
   const [typed, setTyped] = useState('');
   const sheetEl = useRef(null);
   const setRefs = (el) => { sheetEl.current = el; if (typeof ref === 'function') ref(el); else if (ref) ref.current = el; };
@@ -459,6 +459,13 @@ export const MoreSheet = forwardRef(function MoreSheet({ open, onClose, sleepEnd
   const left = endsAt ? Math.max(0, Math.round((endsAt - Date.now()) / 60000)) : 0;
   return (
     <Sheet ref={setRefs} open={open} onClose={onClose} title={t('tv')} fromTop closeDrag={closeDrag} className="more-sheet">
+      {showCallMarvin && (
+        <section className="more-block">
+          <div className="chips-row">
+            <a className="chip glass" href="shortcuts://run-shortcut?name=Talk%20to%20Marvin">Call Marvin</a>
+          </div>
+        </section>
+      )}
       {tvs?.length > 1 && (
         <section className="more-block first">
           <h3><Ic.Screen size={16} /> {t('which_tv')}</h3>

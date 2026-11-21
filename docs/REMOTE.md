@@ -72,6 +72,16 @@ it there, as the same person. Android and Google TV only; the limits are in [MOV
 
 Use Safari for this step. Other iPhone browsers cannot add a Home Screen icon the same way.
 
+### Call Marvin from the iPhone remote
+
+The iPhone remote uses the existing **Talk to Marvin** shortcut, configured with ChatGPT’s
+**Open your dot** action for **Marvin** in **Call** mode. No duplicate shortcut is needed.
+To test the handoff, tap **More → Call Marvin** in the
+Couch TV remote on the iPhone. The link appears after profiles are loaded, outside kids
+profiles and outside a shared profile when a kids profile exists. It doesn’t read watchlists,
+send a prompt, or change playback. The existing Ask feature is unchanged. If the Shortcuts
+action is unavailable, call from the dot’s ChatGPT conversation instead.
+
 ## Android (Chrome)
 
 1. On the phone, open Chrome and go to `http://<computer address>:5400`.

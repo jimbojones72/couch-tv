@@ -119,6 +119,7 @@ export default function App() {
   const [people, setPeople] = useState([{ id: 'person1', name: 'Person 1' }, { id: 'person2', name: 'Person 2' }]);
   // ask.enabled false in config.json hides Ask; people can be any number (none: everything shows as Both)
   const [askOn, setAskOn] = useState(true);
+  const [callProfilesReady, setCallProfilesReady] = useState(false);
   // Glass app icons, the same look as the TV home's dock (#25): its Home settings, Look, Glass app
   // icons wins, else home.glass_icons in config.json. Off unless the TV has it on.
   // How clear the glass is, 1 to 5, follows the TV the same way (#29), and so does whether a
@@ -137,9 +138,11 @@ export default function App() {
   useEffect(() => { if (!who && people.length === 0) setWho('both'); }, [people]); // eslint-disable-line react-hooks/exhaustive-deps
   // the kids profiles (people with kids_mode): no Ask for them (docs/CONFIG.md, "Kids mode")
   const kidIds = people.filter((p) => p.kids_mode).map((p) => p.id);
-  const loadConfig = () => api.config().then((c) => { if (Array.isArray(c.people)) setPeople(c.people); }).catch(() => {});
-  useEffect(() => { api.config().then((c) => { if (Array.isArray(c.people)) setPeople(c.people); if (c.ask && c.ask.enabled === false) setAskOn(false); glass.current.cfg = c.home?.glass_icons === true; glass.current.amtCfg = amount(c.home?.glass_amount) ?? 3; glass.current.focusCfg = c.home?.glass_focus ?? null; showGlass(); }).catch(() => {}); }, []);
+  const loadConfig = () => api.config().then((c) => { if (Array.isArray(c.people)) { setPeople(c.people); setCallProfilesReady(true); } }).catch(() => {});
+  useEffect(() => { api.config().then((c) => { if (Array.isArray(c.people)) { setPeople(c.people); setCallProfilesReady(true); } if (c.ask && c.ask.enabled === false) setAskOn(false); glass.current.cfg = c.home?.glass_icons === true; glass.current.amtCfg = amount(c.home?.glass_amount) ?? 3; glass.current.focusCfg = c.home?.glass_focus ?? null; showGlass(); }).catch(() => {}); }, []);
   const [who, setWhoState] = useState(() => store.get('tv.who'));
+  const showCallMarvin = callProfilesReady && typeof navigator !== 'undefined' && /\biPhone\b/i.test(navigator.userAgent)
+    && (who === 'both' ? kidIds.length === 0 : people.some((p) => p.id === who && !p.kids_mode));
   // Which TV this phone drives, remembered per phone. null is the bridge's default (living room).
   const [tvId, setTvIdState] = useState(() => { const id = store.get('tv.tv'); setTvId(id); return id; });
   const [tvs, setTvs] = useState([]);
@@ -413,6 +416,7 @@ export default function App() {
       <AskSheet ref={askInput} open={sheet === 'ask'} onClose={() => setSheet(null)} who={who} recs={recs} onAsk={onAsk} onDone={(reply) => say(reply)} />
       <TypeSheet ref={typeInput} open={sheet === 'type'} onClose={() => setSheet(null)} onText={sendText} />
       <MoreSheet ref={moreSheet} open={sheet === 'more'} tvs={tvs} tvId={tvId || 'living-room'} onTv={(id) => { tick(); chooseTv(id); }}
+        showCallMarvin={showCallMarvin}
         canMove={!offState && ['playing', 'paused', 'buffering'].includes(tv?.playing?.state) && Boolean(tv?.playing?.title)} onMove={onMove}
         picture={tv?.picture} pictureInfo={pictureInfo} onPicture={onPicture} onClose={() => setSheet(null)} sleepEnds={sleepEnds} sleepError={sleepError} onSleep={onSleep}
         onKey={onKey} onText={sendText} onArrange={() => setSheet('arrange')} onPeople={() => setSheet('people')} onKids={() => setSheet('kids')} />
