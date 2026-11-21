@@ -34,6 +34,7 @@ import messages
 import move
 import store
 import taste
+import watchlist
 from tv import TV, TVUnavailable, intent_to_link, check_package, UnsafeInput
 import samsung
 import samsung_frame
@@ -2173,6 +2174,75 @@ async def h_recs(request):
                               "continue": continue_items(who, request_base(request)), "picks": picks})
 
 
+# ---------- the watchlist and new episodes (bridge/watchlist.py) ----------
+def _list_who(value):
+    who = store.norm_who(value) or cur_who()
+    if who in (None, "both"):
+        raise ApiError(400, "say whose list: " + ", ".join(config.PEOPLE_IDS),
+                       key="err_who_must_be", vars={"choices": ", ".join(config.PEOPLE_IDS)})
+    return who
+
+
+async def h_watchlist(request):
+    who = _list_who(request.query.get("who"))
+    return ok(who=who, items=watchlist.items(who))
+
+
+async def h_watchlist_add(request):
+    data = await body(request)
+    who = _list_who(data.get("who"))
+    title = (data.get("title") or "").strip()
+    if not title:
+        raise ApiError(400, "title is required", key="err_title_required")
+    best = None
+    try:
+        best, _ = await finder.find(title, data.get("type"))
+    except Exception as e:   # JustWatch down: keep the title as typed
+        log.info("watchlist: %s not looked up (%s)", title, e)
+    # the first app it streams on that couch-tv can open (subscription before rent or buy)
+    service = next((p["service"] for p in (best or {}).get("providers") or [] if p.get("playable")), None)
+    item = watchlist.add(who, (best or {}).get("title") or title, (best or {}).get("year"),
+                         (best or {}).get("type") or data.get("type"), data.get("service") or service,
+                         (best or {}).get("poster"), (best or {}).get("backdrop"))
+    record_action(request, "watchlist_add", {"title": item["title"], "who": who}, True)
+    push_now()
+    return ok(who=who, item=item)
+
+
+async def h_watchlist_remove(request):
+    data = await body(request)
+    who = store.norm_who(data.get("who"))
+    key = (data.get("id") or data.get("title") or "").strip()
+    if not key:
+        raise ApiError(400, "title is required", key="err_title_required")
+    gone = watchlist.remove(None if who in (None, "both") else who, key)
+    record_action(request, "watchlist_remove", {"title": key}, gone)
+    push_now()
+    return ok(removed=gone)
+
+
+async def h_new_episodes(request):
+    who = store.norm_who(request.query.get("who"))
+    if request.query.get("refresh") in ("1", "true"):
+        await watchlist.refresh(config.PEOPLE_IDS, agentic.latest_episode, force=True)
+    return ok(who=who, items=watchlist.new_for(who))
+
+
+async def new_episodes_loop():
+    """A few minutes after start, then every few hours: look for new episodes of the shows people
+    watch (watchlist.refresh only looks a show up again after CHECK_EVERY)."""
+    await asyncio.sleep(180)
+    while True:
+        try:
+            got = await watchlist.refresh(config.PEOPLE_IDS, agentic.latest_episode)
+            if got:
+                log.info("new episodes: looked up %d shows", got)
+                push_now()
+        except Exception as e:
+            log.warning("new episodes failed: %s: %s", type(e).__name__, e)
+        await asyncio.sleep(3 * 3600)
+
+
 async def h_api_missing(request):
     raise ApiError(404, "no such endpoint", key="err_no_such_endpoint")
 
@@ -3066,7 +3136,7 @@ def continue_items(who=None, base=""):
                     "last_played": h.get("when"), "source": "bridge"})
     plex_cards = plex.cards(who, days=store.KEEP_DAYS)
     if not plex_cards:
-        return out
+        return extra_cards(out, who)
     plex_app = apps.describe_package(pkg_of(apps.BY_ID["plex"]))
     for p in plex_cards:
         out.append({"id": p["id"], "title": p["title"], "episode_title": p.get("episode_title"),
@@ -3093,7 +3163,56 @@ def continue_items(who=None, base=""):
         merged.append(c)
         if len(merged) >= store.KEEP_MAX:
             break
-    return merged
+    return extra_cards(merged, who)
+
+
+NEW_MAX = 4        # new episode cards at the front of Keep watching
+WATCHLIST_MAX = 5  # watchlist cards at the end
+
+
+def _card_app(service):
+    app = apps.BY_ID.get(service) if service else None
+    return apps.describe_package(pkg_of(app)) if app else None
+
+
+def _service_for(names):
+    """The first installed app among JustWatch's app names for an episode ("Netflix", "Binge")."""
+    by_name = {finder._norm(a["name"]): a for a in apps.APPS}
+    for n in names or []:
+        app = by_name.get(finder._norm(n))
+        if app:
+            return app["id"]
+    return None
+
+
+def extra_cards(cards, who):
+    """Keep watching plus the new episodes (at the front, replacing that show's own card) and this
+    person's watchlist (at the end, minus anything already in the row). bridge/watchlist.py."""
+    try:
+        new = watchlist.new_for(who)[:NEW_MAX]
+        mine = watchlist.items(who)[:WATCHLIST_MAX] if who not in (None, "both") else []
+    except Exception as e:   # a broken file never takes Keep watching with it
+        log.warning("watchlist: %s: %s", type(e).__name__, e)
+        return cards
+    front = []
+    for n in new:
+        service = n.get("service") or _service_for(n.get("on"))
+        front.append({"id": n["id"], "title": n["title"], "episode_title": n.get("name"),
+                      "season": n["season"], "episode": n["episode"], "app": _card_app(service),
+                      "service": service, "poster": n.get("poster"), "backdrop": n.get("backdrop"),
+                      "progress": None, "kind": "new_episode",
+                      "label": f"New · S{n['season']} E{n['episode']}", "last_played": n.get("released"),
+                      "source": "bridge"})
+    rest = [c for c in cards if not any(finder.same_title(c["title"], f["title"]) for f in front)]
+    out = front + rest
+    for i in mine:
+        if any(finder.same_title(i["title"], c["title"]) for c in out):
+            continue
+        out.append({"id": i["id"], "title": i["title"], "episode_title": None, "season": None, "episode": None,
+                    "app": _card_app(i.get("service")), "service": i.get("service"), "poster": i.get("poster"),
+                    "backdrop": i.get("backdrop"), "progress": None, "kind": "watchlist", "label": "On your list",
+                    "last_played": i.get("added"), "source": "bridge"})
+    return out
 
 
 def continue_videos(who=None):
@@ -3511,6 +3630,21 @@ async def h_continue_open(request):
         result = await open_plex_card(p, store.norm_who(data.get("who")) or cur_who())
         record_action(request, "continue", {"id": cid}, True)
         return ok(**result)
+    if isinstance(cid, str) and cid.startswith(("wl-", "ne-")):
+        who = store.norm_who(data.get("who")) or cur_who()
+        if cid.startswith("wl-"):
+            _, item = watchlist.find_item(cid)
+            if not item:
+                raise ApiError(404, f"unknown continue item: {cid}", key="err_unknown_continue_item", vars={"id": cid})
+            result = await play(item["title"], service=item.get("service"), who=who)
+        else:
+            card = watchlist.find_new(cid, who)
+            if not card:
+                raise ApiError(404, f"unknown continue item: {cid}", key="err_unknown_continue_item", vars={"id": cid})
+            result = await play(card["title"], card["season"], card["episode"],
+                                card.get("service") or _service_for(card.get("on")), who)
+        record_action(request, "continue", {"id": cid}, True)
+        return ok(**result)
     h = store.history_item(cid) if cid else None
     if not h:
         raise ApiError(404, f"unknown continue item: {cid}", key="err_unknown_continue_item", vars={"id": cid})
@@ -3541,6 +3675,19 @@ async def h_continue_hide(request):
         who = store.norm_who(data.get("who")) or cur_who()
         for w in ([who] if who and who != "both" else [None, "both", *config.PEOPLE_IDS]):
             store.hide_keep_watching({"tv": _current.get(), "who": w, "title": p["title"]})
+        record_action(request, "continue_hide", {"id": cid}, True)
+        return ok()
+    if isinstance(cid, str) and cid.startswith("wl-"):   # off the watchlist
+        if not watchlist.remove(None, cid):
+            raise ApiError(404, f"unknown continue item: {cid}", key="err_unknown_continue_item", vars={"id": cid})
+        record_action(request, "continue_hide", {"id": cid}, True)
+        return ok()
+    if isinstance(cid, str) and cid.startswith("ne-"):   # this new episode, for this person
+        who = store.norm_who(data.get("who")) or cur_who()
+        card = watchlist.find_new(cid, who)
+        if not card:
+            raise ApiError(404, f"unknown continue item: {cid}", key="err_unknown_continue_item", vars={"id": cid})
+        watchlist.dismiss_new(who, card)
         record_action(request, "continue_hide", {"id": cid}, True)
         return ok()
     h = store.history_item(cid) if cid else None
@@ -5218,6 +5365,10 @@ def make_app():
     r.add_get("/api/spotify/status", h_spotify_status)
     r.add_post("/api/continue/open", h_continue_open)
     r.add_post("/api/continue/hide", h_continue_hide)
+    r.add_get("/api/watchlist", h_watchlist)
+    r.add_post("/api/watchlist", h_watchlist_add)
+    r.add_post("/api/watchlist/remove", h_watchlist_remove)
+    r.add_get("/api/new-episodes", h_new_episodes)
     r.add_get("/api/plex/art", h_plex_art)
     r.add_get("/api/plex/status", h_plex_status)
     r.add_post("/api/watch-next", h_watch_next)
@@ -5245,7 +5396,8 @@ def make_app():
     async def on_startup(_):
         # Keep references so the loops are never garbage collected.
         app["loops"] = [asyncio.create_task(claude.background_loop()),
-                        asyncio.create_task(history_loop())]
+                        asyncio.create_task(history_loop()),
+                        asyncio.create_task(new_episodes_loop())]
         if plex.enabled():
             app["loops"].append(asyncio.create_task(plex.loop()))
         elif plex.settings():

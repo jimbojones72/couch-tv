@@ -280,6 +280,46 @@ def latest_episode(title: str) -> dict:
 
 
 @mcp.tool()
+def watchlist(who: str | None = None) -> dict:
+    """A person's watchlist (what they want to watch), newest first. who is a person's id or name;
+    left out, the person on the couch."""
+    q = "?" + urllib.parse.urlencode({"who": who}) if who else ""
+    return call("GET", "/api/watchlist" + q)
+
+
+@mcp.tool()
+def watchlist_add(title: str, who: str | None = None, type: str | None = None) -> dict:
+    """Put a show or film on a person's watchlist ("add Severance to my list"). type is "tv" or
+    "movie" when it matters. It shows on their Keep watching row on the TV as "On your list"."""
+    payload = {"title": title}
+    if who:
+        payload["who"] = who
+    if type:
+        payload["type"] = type
+    return call("POST", "/api/watchlist", payload, timeout=40)
+
+
+@mcp.tool()
+def watchlist_remove(title: str, who: str | None = None) -> dict:
+    """Take a title off a person's watchlist (or off everyone's when who is left out)."""
+    payload = {"title": title}
+    if who:
+        payload["who"] = who
+    return call("POST", "/api/watchlist/remove", payload)
+
+
+@mcp.tool()
+def new_episodes(who: str | None = None, refresh: bool = False) -> dict:
+    """Shows this person watches (or has on their watchlist) with a new episode out in the last two
+    weeks that they have not watched since: title, season, episode, name, date, apps. refresh=true
+    looks every show up again first (slow, up to a minute)."""
+    q = {"who": who} if who else {}
+    if refresh:
+        q["refresh"] = "1"
+    return call("GET", "/api/new-episodes" + ("?" + urllib.parse.urlencode(q) if q else ""), timeout=90)
+
+
+@mcp.tool()
 def both_like() -> dict:
     """For "something we'd both like": each person's genres and shows, what they share,
     what either dropped, who has little history, and the household's ready picks (app, reason)."""

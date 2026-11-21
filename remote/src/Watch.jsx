@@ -60,7 +60,7 @@ export function Watch({ pull, people, who, recs, cont: contIn, apps, hidden, scr
         {cont.length ? (
           <div className="shelf">
             {cont.map((s) => <Poster key={s.id || `${s.title}-${s.service}`} show={s} onPlay={onPlay} onRemove={s.id ? onRemove : null}
-              sub={[episode(s) || s.episode_title, s.app?.name || serviceName(s.service)].filter(Boolean).join(' · ')} />)}
+              sub={[s.label || episode(s) || s.episode_title, s.app?.name || serviceName(s.service)].filter(Boolean).join(' · ')} />)}
           </div>
         ) : <p className="empty">{contIn === false ? t('couldnt_load') : contIn ? t('shows_wait') : t('loading')}</p>}
       </section>

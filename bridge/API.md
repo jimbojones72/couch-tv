@@ -544,6 +544,29 @@ answer the same way.
 {"ok": true, "src": "news", "id": "abc", "text": "<?xml version=\"1.0\"?><rss>..."}
 ```
 
+### The watchlist and new episodes (`bridge/watchlist.py`)
+Each person has a watchlist, and once a day the bridge looks up the newest episode (JustWatch, this
+home's country) of every show a person watched in the last 120 days (on our TVs or imported from
+Netflix) or has on their watchlist. Both show in `GET /api/continue`'s `items`:
+- **New episodes** first (at most 4): a show whose newest episode came out in the last 14 days and after
+  the person last watched it, or a show on their watchlist with an episode out in the last 14 days.
+  `"kind": "new_episode"`, `"label": "New · S4 E6"`, id `ne-...`. Opening it plays that episode;
+  `/api/continue/hide` takes it off for that person until the next episode.
+- **The watchlist** last (at most 5), minus titles already in the row. `"kind": "watchlist"`,
+  `"label": "On your list"`, id `wl-...`. Opening it plays the title; `/api/continue/hide` takes it off
+  the list.
+
+| Call | What it does |
+|---|---|
+| `GET /api/watchlist?who=` | The person's list, newest first (`who` left out: the person on the couch). |
+| `POST /api/watchlist` `{"title", "who"?, "type"?}` | Look the title up and put it on top of the list (once per title). |
+| `POST /api/watchlist/remove` `{"title" or "id", "who"?}` | Take it off that person's list, or everyone's. |
+| `GET /api/new-episodes?who=&refresh=1` | The new episode cards for that person; `refresh=1` looks every show up again first. |
+
+The assistant has the same as tools (`watchlist`, `watchlist_add`, `watchlist_remove`, `new_episodes`),
+so "add Severance to my list" and "anything new to watch?" work from the phone's Ask box. The files are
+`data/watchlist.json` and `data/new-episodes.json`.
+
 ### `GET /api/continue`
 "Keep watching" for one TV (`?tv=`) and one person (`?who=`, else the person on that TV's couch):
 one card per show (its latest episode), newest first, at most 10, nothing older than 30 days.
