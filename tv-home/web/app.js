@@ -1609,7 +1609,7 @@
   // for a YouTube video ("HBO Max · S1 E3", "YouTube · Live")
   function loopSub(it) {
     var live = it.live === true || it.kind === "live";
-    var what = live ? t("live_card") : it.kind === "video" ? t("video_card") :
+    var what = live ? t("live_card") : it.kind === "video" ? t("video_card") : it.label ? it.label :
       it.season && it.episode ? "S" + it.season + " E" + it.episode : (it.episode_title || "");
     return [it.app && it.app.name, what].filter(Boolean).join(" · ");
   }
@@ -2949,8 +2949,12 @@
     var parts = [];
     if (it.app && it.app.name) parts.push(it.app.name);
     if (it.kind === "video") parts.push(t("video_card"));   // a YouTube video: no season, episode or picture
-    if (it.season && it.episode) parts.push("S" + it.season + ", E" + it.episode);
-    if (it.episode_title) parts.push(it.episode_title);
+    // a bridge card that says what it is ("New · S2 E5", "On your list"): the watchlist and new episodes
+    if (it.label) parts.push(it.label);
+    else {
+      if (it.season && it.episode) parts.push("S" + it.season + ", E" + it.episode);
+      if (it.episode_title) parts.push(it.episode_title);
+    }
     return parts.join("  ·  ");
   }
 
@@ -3123,7 +3127,7 @@
   }
 
   // Keep watching shows up to ten per person; the row slides along under the remote.
-  var KEEP_MAX = 10;
+  var KEEP_MAX = 15;   // Keep watching (10), plus new episodes and the watchlist from the bridge
 
   // ---------------- the row follows the app the remote is on (home.shelf_follows_app) ----------------
   // followPkg is the package of the app tile the remote is on, or null for the whole row. While it is
@@ -3224,7 +3228,7 @@
       // lock screen notifications: glass cards, three in view, the row slides past the third
       track.innerHTML = data.shows.map(function (it) {
         var art = slim(it.backdrop || it.poster), pkg = it.app && it.app.package;
-        var ep = it.kind === "video" ? t("video_card") : it.season && it.episode ? "S" + it.season + " E" + it.episode : (it.episode_title || "");
+        var ep = it.kind === "video" ? t("video_card") : it.label ? it.label : it.season && it.episode ? "S" + it.season + " E" + it.episode : (it.episode_title || "");
         return '<div class="tile ncard">' +
           (art ? '<img class="thumb" src="' + esc(art) + '" alt="" decoding="async" data-err="kwretry">' : '<span class="thumb none"></span>') +
           '<div class="t"><div class="nap">' + (pkg && iconUrl(pkg) ? '<img src="' + esc(iconUrl(pkg)) + '" alt="" data-err="remove">' : "") +
